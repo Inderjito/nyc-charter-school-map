@@ -1,14 +1,578 @@
-<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NYC Charter Schools | Interactive Map</title><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>
-:root{font-family:Inter,system-ui,-apple-system,sans-serif;color:#14213d}*{box-sizing:border-box}body{margin:0;background:#f5f7fb}header{padding:19px 24px;background:#10233f;color:white}h1{font-size:23px;margin:0 0 5px}header p{margin:0;color:#c9d7e9;font-size:13px}.layout{display:grid;grid-template-columns:330px 1fr;height:calc(100vh - 89px)}aside{background:white;padding:20px;overflow:auto;border-right:1px solid #e4e8ef}label{font-weight:650;font-size:13px;display:block;margin:14px 0 7px}input,select{width:100%;padding:11px;border:1px solid #cfd7e3;border-radius:8px;font:inherit}.metric{background:#edf3ff;border-radius:12px;padding:15px;margin-bottom:14px}.metric strong{font-size:30px;display:block}.metric small{color:#51627a}.status{font-size:12px;color:#5b6575;margin:12px 0;line-height:1.5}.list{margin-top:16px}.school{border-bottom:1px solid #edf0f4;padding:12px 0}.school strong{display:block;font-size:13px}.school small{color:#59677c}#map{height:100%;width:100%}.source{font-size:12px;line-height:1.6;margin-top:20px;color:#526177}.source a{color:#1c57a7}@media(max-width:720px){.layout{display:flex;flex-direction:column;height:auto}aside{max-height:47vh}#map{height:55vh;min-height:360px}}
-</style></head><body><header><h1>NYC Charter School Explorer</h1><p>Interactive geographic overview • Five boroughs • Data provenance included</p></header><div class="layout"><aside><div class="metric"><strong id="count">—</strong><small>Mapped campus records matching filters</small></div><label for="search">Search schools</label><input id="search" placeholder="School name or address" autocomplete="off"><label for="borough">Borough</label><select id="borough"><option value="">All boroughs</option><option>Bronx</option><option>Brooklyn</option><option>Manhattan</option><option>Queens</option><option>Staten Island</option></select><p class="status" id="status" role="status">Loading map data…</p><div class="list" id="list"></div><p class="source"><b>Source:</b> ArcGIS public charter school geospatial layer. This is a prototype dataset, not a certified complete or current directory. Cross-check with <a href="https://www.nysed.gov/charter-schools/charter-schools-directory" target="_blank" rel="noopener">NYSED</a> and the <a href="https://nyccharterschools.org/data-hub/" target="_blank" rel="noopener">NYC Charter School Center</a>.</p></aside><main id="map" aria-label="Map of NYC charter schools"></main></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
-const SERVICE='https://services2.arcgis.com/bB9Y1bGKerz1PTl5/ArcGIS/rest/services/School_Age_Population_Benjamin_Hagadorn_WFL1/FeatureServer/0/query';
-const map=L.map('map').setView([40.725,-73.94],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);const markers=L.layerGroup().addTo(map);let schools=[];
-const boroughNames={X:'Bronx',K:'Brooklyn',M:'Manhattan',Q:'Queens',R:'Staten Island'};
-function getField(o,names){for(const n of names){let k=Object.keys(o).find(x=>x.toLowerCase()===n.toLowerCase());if(k&&o[k]!=null&&String(o[k]).trim())return String(o[k]).trim()}return ''}
-function getBorough(o){let raw=getField(o,['borough','boro','borough_name','boro_name','county','city']);if(/bronx/i.test(raw))return 'Bronx';if(/brooklyn|kings/i.test(raw))return 'Brooklyn';if(/manhattan|new york/i.test(raw))return 'Manhattan';if(/queens/i.test(raw))return 'Queens';if(/staten|richmond/i.test(raw))return 'Staten Island';let dbn=getField(o,['dbn','school_dbn']);return boroughNames[dbn.charAt(2)?.toUpperCase()]||'Unknown'}
-function safe(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function draw(){let q=document.getElementById('search').value.toLowerCase(),b=document.getElementById('borough').value;let found=schools.filter(s=>(!b||s.borough===b)&&(`${s.name} ${s.address}`.toLowerCase().includes(q)));markers.clearLayers();for(let s of found){let m=L.circleMarker([s.lat,s.lng],{radius:6,color:'#fff',weight:1.5,fillColor:'#2563eb',fillOpacity:.85}).addTo(markers);m.bindPopup(`<b>${safe(s.name)}</b><br>${safe(s.address||'Address unavailable')}<br>${safe(s.borough)}`)}document.getElementById('count').textContent=found.length.toLocaleString();document.getElementById('list').innerHTML=found.slice(0,60).map(s=>`<div class="school"><strong>${safe(s.name)}</strong><small>${safe(s.borough)}${s.address?' · '+safe(s.address):''}</small></div>`).join('')+(found.length>60?'<p class="status">Showing first 60 results in the list; all matching points are on the map.</p>':'');document.getElementById('status').textContent=`${found.length} of ${schools.length} mapped records. Dataset may be historical or incomplete.`}
-async function load(){try{const url=SERVICE+'?'+new URLSearchParams({where:'1=1',outFields:'*',returnGeometry:'true',outSR:'4326',f:'geojson'});let r=await fetch(url);if(!r.ok)throw Error('HTTP '+r.status);let data=await r.json();if(data.error)throw Error(data.error.message);if(!Array.isArray(data.features))throw Error('Unexpected source format');schools=data.features.map((f,i)=>{let o=f.properties||{},c=f.geometry?.coordinates;return {name:getField(o,['school_name','schoolname','name','school','facility_name','org_name'])||`Charter school record ${i+1}`,address:getField(o,['address','location','street_address','primary_address','address1']),borough:getBorough(o),lng:c?.[0],lat:c?.[1]}}).filter(s=>Number.isFinite(s.lat)&&Number.isFinite(s.lng)&&s.lat>40.45&&s.lat<40.95&&s.lng> -74.3&&s.lng< -73.65);if(!schools.length)throw Error('No valid NYC coordinates in source');draw();let bounds=L.latLngBounds(schools.map(s=>[s.lat,s.lng]));map.fitBounds(bounds.pad(.08));}catch(e){document.getElementById('status').textContent='Could not load the public data service: '+e.message+'. Please retry later. No locations were fabricated.';document.getElementById('count').textContent='0';}}
-document.getElementById('search').addEventListener('input',draw);document.getElementById('borough').addEventListener('change',draw);load();
-</script></body></html>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NYC Charter School Explorer</title>
+
+  <link rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+  <style>
+    :root {
+      font-family: Inter, system-ui, Arial, sans-serif;
+      color: #172b4d;
+      background: #f5f7fb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body { margin: 0; }
+
+    header {
+      background: #10233f;
+      color: white;
+      padding: 20px 26px;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 24px;
+    }
+
+    header p {
+      margin: 7px 0 0;
+      font-size: 13px;
+      color: #cbd8ea;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 350px minmax(0, 1fr);
+      height: calc(100vh - 90px);
+    }
+
+    aside {
+      background: white;
+      padding: 20px;
+      overflow-y: auto;
+      border-right: 1px solid #e2e8f0;
+    }
+
+    .metric {
+      background: #eaf1ff;
+      padding: 18px;
+      border-radius: 12px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 34px;
+    }
+
+    .metric small {
+      color: #526581;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      margin: 18px 0 8px;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font: inherit;
+      background: white;
+    }
+
+    .status {
+      font-size: 12px;
+      line-height: 1.6;
+      color: #526581;
+      margin: 16px 0;
+    }
+
+    .school {
+      border-bottom: 1px solid #e9edf3;
+      padding: 13px 4px;
+      cursor: pointer;
+    }
+
+    .school:hover {
+      background: #f1f5ff;
+    }
+
+    .school strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 5px;
+    }
+
+    .school small {
+      color: #617086;
+      line-height: 1.5;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+      background: #e9eef5;
+    }
+
+    .source {
+      font-size: 12px;
+      color: #526581;
+      line-height: 1.6;
+      margin-top: 24px;
+    }
+
+    .source a { color: #2259a5; }
+
+    .reset {
+      margin-top: 12px;
+      padding: 10px 14px;
+      border: 1px solid #ccd6e4;
+      border-radius: 8px;
+      background: white;
+      cursor: pointer;
+    }
+
+    @media (max-width: 720px) {
+      .layout {
+        display: flex;
+        flex-direction: column;
+        height: auto;
+      }
+
+      aside { max-height: 48vh; }
+
+      #map {
+        height: 55vh;
+        min-height: 350px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>NYC Charter School Explorer</h1>
+    <p>
+      Interactive school location map |
+      Five NYC boroughs | NYS education data
+    </p>
+  </header>
+
+  <div class="layout">
+    <aside>
+      <div class="metric">
+        <strong id="count">—</strong>
+        <small>Mapped charter school records</small>
+      </div>
+
+      <label for="search">Search charter schools</label>
+      <input
+        id="search"
+        placeholder="School name, address or ZIP"
+        autocomplete="off"
+      >
+
+      <label for="borough">Filter by borough</label>
+      <select id="borough">
+        <option value="">All boroughs</option>
+        <option>Bronx</option>
+        <option>Brooklyn</option>
+        <option>Manhattan</option>
+        <option>Queens</option>
+        <option>Staten Island</option>
+      </select>
+
+      <button class="reset" id="reset">
+        Clear filters
+      </button>
+
+      <p class="status" id="status" role="status">
+        Loading charter school locations...
+      </p>
+
+      <div id="list"></div>
+
+      <div class="source">
+        <strong>Data source</strong>
+        <p>
+          NYS ITS Geospatial Services, based on
+          New York State Education Department data.
+        </p>
+        <p>
+          This map displays available geospatial records.
+          It is not a certified current roster of every
+          operating NYC charter school campus.
+        </p>
+        <a
+          href="https://www.nysed.gov/charter-schools/charter-schools-directory"
+          target="_blank"
+          rel="noopener noreferrer"
+        >NYSED Charter School Directory</a>
+      </div>
+    </aside>
+
+    <main id="map" aria-label="NYC charter school map"></main>
+  </div>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+  </script>
+
+  <script>
+    "use strict";
+
+    // Official New York State charter school GIS layer.
+    const SERVICE =
+      "https://nysgeohub.ny.gov/arcgis/rest/services/" +
+      "Education/NYS_Schools/FeatureServer/3/query";
+
+    const NYC_COUNTIES = {
+      Bronx: "Bronx",
+      Kings: "Brooklyn",
+      "New York": "Manhattan",
+      Queens: "Queens",
+      Richmond: "Staten Island"
+    };
+
+    const map = L.map("map").setView(
+      [40.7128, -73.94], 11
+    );
+
+    // Alternative basemap provider.
+    L.tileLayer(
+      "https://basemaps.cartocdn.com/light_all/" +
+      "{z}/{x}/{y}{r}.png",
+      {
+        maxZoom: 19,
+        attribution:
+          '&copy; OpenStreetMap contributors ' +
+          '&copy; CARTO'
+      }
+    ).addTo(map);
+
+    const markerLayer = L.layerGroup().addTo(map);
+
+    let schools = [];
+    let markerIndex = new Map();
+
+    const $ = id => document.getElementById(id);
+
+    function escapeHTML(value) {
+      return String(value ?? "").replace(
+        /[&<>"']/g,
+        char => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;"
+        })[char]
+      );
+    }
+
+    function boroughFromCounty(county) {
+      const normalized = String(county || "")
+        .trim()
+        .toLowerCase();
+
+      for (const [name, borough] of
+        Object.entries(NYC_COUNTIES)) {
+        if (normalized === name.toLowerCase()) {
+          return borough;
+        }
+      }
+
+      return null;
+    }
+
+    function normalizeSchool(feature) {
+      const p = feature.properties || {};
+      const coordinates = feature.geometry?.coordinates;
+
+      if (!Array.isArray(coordinates)) return null;
+
+      const [lng, lat] = coordinates;
+      const borough = boroughFromCounty(p.COUNTY_DESC);
+
+      if (!borough) return null;
+
+      if (
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lng) ||
+        lat < 40.45 || lat > 40.95 ||
+        lng < -74.30 || lng > -73.65
+      ) return null;
+
+      const name = String(
+        p.LEGAL_NAME || ""
+      ).trim();
+
+      if (!name) return null;
+
+      const address = [
+        p.PHYSADDRLINE1,
+        p.PHYSCITY,
+        p.PHYSZIPCD5
+      ].filter(Boolean).join(", ");
+
+      return {
+        id: String(p.OBJECTID ?? `${name}-${lat}-${lng}`),
+        name,
+        address,
+        borough,
+        lat,
+        lng
+      };
+    }
+
+    function popupContent(school) {
+      const directions = new URL(
+        "https://www.google.com/maps/search/"
+      );
+
+      directions.searchParams.set(
+        "api", "1"
+      );
+
+      directions.searchParams.set(
+        "query",
+        `${school.lat},${school.lng}`
+      );
+
+      return `
+        <strong>${escapeHTML(school.name)}</strong>
+        <p>${escapeHTML(school.address)}</p>
+        <p>${escapeHTML(school.borough)}</p>
+        <a href="${directions.href}"
+           target="_blank"
+           rel="noopener noreferrer">
+          View directions
+        </a>
+      `;
+    }
+
+    function render() {
+      const query = $("search").value
+        .trim()
+        .toLowerCase();
+
+      const selectedBorough = $("borough").value;
+
+      const filtered = schools.filter(school => {
+        const matchesBorough =
+          !selectedBorough ||
+          school.borough === selectedBorough;
+
+        const searchable = [
+          school.name,
+          school.address,
+          school.borough
+        ].join(" ").toLowerCase();
+
+        return matchesBorough &&
+          searchable.includes(query);
+      });
+
+      markerLayer.clearLayers();
+      markerIndex.clear();
+
+      const bounds = [];
+
+      for (const school of filtered) {
+        const marker = L.circleMarker(
+          [school.lat, school.lng],
+          {
+            radius: 7,
+            color: "#ffffff",
+            weight: 2,
+            fillColor: "#2563eb",
+            fillOpacity: 0.9
+          }
+        );
+
+        marker.bindPopup(popupContent(school));
+        marker.addTo(markerLayer);
+
+        markerIndex.set(school.id, marker);
+        bounds.push([school.lat, school.lng]);
+      }
+
+      $("count").textContent =
+        filtered.length.toLocaleString();
+
+      $("status").textContent =
+        `${filtered.length} of ${schools.length} ` +
+        "mapped NYC charter school records. " +
+        "Current operating status is not verified.";
+
+      const list = $("list");
+      list.replaceChildren();
+
+      if (!filtered.length) {
+        const empty = document.createElement("p");
+        empty.className = "status";
+        empty.textContent = "No matching schools found.";
+        list.appendChild(empty);
+      }
+
+      for (const school of filtered) {
+        const item = document.createElement("div");
+        item.className = "school";
+        item.tabIndex = 0;
+        item.setAttribute("role", "button");
+
+        item.innerHTML = `
+          <strong>${escapeHTML(school.name)}</strong>
+          <small>
+            ${escapeHTML(school.borough)}
+            ${school.address
+              ? " · " + escapeHTML(school.address)
+              : ""}
+          </small>
+        `;
+
+        function selectSchool() {
+          map.setView(
+            [school.lat, school.lng], 15
+          );
+
+          markerIndex.get(school.id)?.openPopup();
+        }
+
+        item.addEventListener("click", selectSchool);
+
+        item.addEventListener("keydown", event => {
+          if (
+            event.key === "Enter" ||
+            event.key === " "
+          ) {
+            event.preventDefault();
+            selectSchool();
+          }
+        });
+
+        list.appendChild(item);
+      }
+
+      if (bounds.length) {
+        map.fitBounds(bounds, {
+          padding: [30, 30],
+          maxZoom: 13
+        });
+      }
+    }
+
+    async function fetchAllSchools() {
+      const results = [];
+      const pageSize = 1000;
+      let offset = 0;
+
+      // Pagination prevents silent truncation.
+      for (let page = 0; page < 50; page++) {
+        const params = new URLSearchParams({
+          where: "1=1",
+          outFields:
+            "OBJECTID,LEGAL_NAME,PHYSADDRLINE1," +
+            "PHYSCITY,PHYSZIPCD5,COUNTY_DESC",
+          returnGeometry: "true",
+          outSR: "4326",
+          resultOffset: String(offset),
+          resultRecordCount: String(pageSize),
+          orderByFields: "OBJECTID ASC",
+          f: "geojson"
+        });
+
+        const response = await fetch(
+          `${SERVICE}?${params.toString()}`
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            `Data service returned HTTP ${response.status}`
+          );
+        }
+
+        const data = await response.json();
+
+        if (data.error) {
+          throw new Error(
+            data.error.message || "GIS query failed"
+          );
+        }
+
+        if (!Array.isArray(data.features)) {
+          throw new Error(
+            "Unexpected data format from GIS service"
+          );
+        }
+
+        results.push(...data.features);
+
+        if (data.features.length < pageSize) {
+          return results;
+        }
+
+        offset += data.features.length;
+      }
+
+      throw new Error(
+        "Pagination limit reached; data may be incomplete"
+      );
+    }
+
+    async function loadSchools() {
+      try {
+        $("status").textContent =
+          "Loading official NYS charter school records...";
+
+        const features = await fetchAllSchools();
+
+        const normalized = features
+          .map(normalizeSchool)
+          .filter(Boolean);
+
+        const unique = new Map();
+
+        for (const school of normalized) {
+          unique.set(school.id, school);
+        }
+
+        schools = [...unique.values()].sort(
+          (a, b) => a.name.localeCompare(b.name)
+        );
+
+        if (!schools.length) {
+          throw new Error(
+            "No NYC charter school records found"
+          );
+        }
+
+        render();
+
+      } catch (error) {
+        console.error(error);
+
+        $("count").textContent = "0";
+
+        $("status").textContent =
+          "Unable to load school data: " +
+          error.message +
+          ". Please refresh or try again later.";
+      }
+    }
+
+    $("search").addEventListener("input", render);
+
+    $("borough").addEventListener("change", render);
+
+    $("reset").addEventListener("click", () => {
+      $("search").value = "";
+      $("borough").value = "";
+      render();
+    });
+
+    loadSchools();
+  </script>
+</body>
+</html>
