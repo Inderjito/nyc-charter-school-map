@@ -6,8 +6,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>NYC Charter School Explorer</title>
 
-  <link rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  >
 
   <style>
     :root {
@@ -17,7 +19,6 @@
     }
 
     * { box-sizing: border-box; }
-
     body { margin: 0; }
 
     header {
@@ -61,9 +62,7 @@
       font-size: 34px;
     }
 
-    .metric small {
-      color: #526581;
-    }
+    .metric small { color: #526581; }
 
     label {
       display: block;
@@ -94,8 +93,10 @@
       cursor: pointer;
     }
 
-    .school:hover {
+    .school:hover,
+    .school:focus {
       background: #f1f5ff;
+      outline-color: #2563eb;
     }
 
     .school strong {
@@ -163,7 +164,7 @@
     <aside>
       <div class="metric">
         <strong id="count">—</strong>
-        <small>Mapped charter school records</small>
+        <small>Mapped charter school records matching filters</small>
       </div>
 
       <label for="search">Search charter schools</label>
@@ -183,7 +184,7 @@
         <option>Staten Island</option>
       </select>
 
-      <button class="reset" id="reset">
+      <button class="reset" id="reset" type="button">
         Clear filters
       </button>
 
@@ -208,21 +209,24 @@
           href="https://www.nysed.gov/charter-schools/charter-schools-directory"
           target="_blank"
           rel="noopener noreferrer"
-        >NYSED Charter School Directory</a>
+        >
+          NYSED Charter School Directory
+        </a>
       </div>
     </aside>
 
-    <main id="map" aria-label="NYC charter school map"></main>
+    <main
+      id="map"
+      aria-label="Map of NYC charter school locations">
+    </main>
   </div>
 
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
-  </script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
     "use strict";
 
-    // Official New York State charter school GIS layer.
+    // New York State charter school GIS data.
     const SERVICE =
       "https://nysgeohub.ny.gov/arcgis/rest/services/" +
       "Education/NYS_Schools/FeatureServer/3/query";
@@ -235,19 +239,21 @@
       Richmond: "Staten Island"
     };
 
+    const $ = id => document.getElementById(id);
+
     const map = L.map("map").setView(
-      [40.7128, -73.94], 11
+      [40.7128, -73.94],
+      11
     );
 
-    // Alternative basemap provider.
+    // Humanitarian OpenStreetMap basemap.
+    // No API key needs to be configured.
     L.tileLayer(
-      "https://basemaps.cartocdn.com/light_all/" +
-      "{z}/{x}/{y}{r}.png",
+      "https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
       {
         maxZoom: 19,
         attribution:
-          '&copy; OpenStreetMap contributors ' +
-          '&copy; CARTO'
+          '&copy; OpenStreetMap contributors, HOT'
       }
     ).addTo(map);
 
@@ -255,8 +261,6 @@
 
     let schools = [];
     let markerIndex = new Map();
-
-    const $ = id => document.getElementById(id);
 
     function escapeHTML(value) {
       return String(value ?? "").replace(
@@ -317,7 +321,9 @@
       ].filter(Boolean).join(", ");
 
       return {
-        id: String(p.OBJECTID ?? `${name}-${lat}-${lng}`),
+        id: String(
+          p.OBJECTID ?? `${name}-${lat}-${lng}`
+        ),
         name,
         address,
         borough,
@@ -331,9 +337,7 @@
         "https://www.google.com/maps/search/"
       );
 
-      directions.searchParams.set(
-        "api", "1"
-      );
+      directions.searchParams.set("api", "1");
 
       directions.searchParams.set(
         "query",
@@ -342,7 +346,7 @@
 
       return `
         <strong>${escapeHTML(school.name)}</strong>
-        <p>${escapeHTML(school.address)}</p>
+        <p>${escapeHTML(school.address || "Address unavailable")}</p>
         <p>${escapeHTML(school.borough)}</p>
         <a href="${directions.href}"
            target="_blank"
@@ -434,7 +438,8 @@
 
         function selectSchool() {
           map.setView(
-            [school.lat, school.lng], 15
+            [school.lat, school.lng],
+            15
           );
 
           markerIndex.get(school.id)?.openPopup();
@@ -468,7 +473,6 @@
       const pageSize = 1000;
       let offset = 0;
 
-      // Pagination prevents silent truncation.
       for (let page = 0; page < 50; page++) {
         const params = new URLSearchParams({
           where: "1=1",
@@ -524,7 +528,7 @@
     async function loadSchools() {
       try {
         $("status").textContent =
-          "Loading official NYS charter school records...";
+          "Loading NYS charter school records...";
 
         const features = await fetchAllSchools();
 
@@ -576,3 +580,4 @@
   </script>
 </body>
 </html>
+
