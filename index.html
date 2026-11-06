@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NYC Charter Schools Map</title>
+<meta name="description" content="Interactive map of every charter school in New York City, built from NCES Common Core of Data.">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css">
+<style>
+  :root {
+    --bg: #f7f6f2; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b70;
+    --line: #e3e1da; --accent: #d9480f; --accent-soft: #fde8dc;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--bg); }
+  .app { display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
+  h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; line-height: 1.45; margin: 0; }
+  .total { display: flex; align-items: baseline; gap: 8px; }
+  .total b { font-size: 40px; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .total span { color: var(--muted); font-size: 14px; }
+  label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); display: block; margin-bottom: 6px; }
+  input[type=search], select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; background: #fff; color: var(--ink); }
+  .boros { display: flex; flex-direction: column; gap: 6px; }
+  .boro { display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; padding: 4px 0; }
+  .boro .bar { grid-column: 2 / 4; height: 4px; background: var(--accent-soft); border-radius: 2px; overflow: hidden; }
+  .boro .bar i { display: block; height: 100%; background: var(--accent); }
+  .boro .n { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .src { font-size: 12px; color: var(--muted); line-height: 1.5; border-top: 1px solid var(--line); padding-top: 14px; margin-top: auto; }
+  .src a { color: var(--ink); }
+  #map { height: 100%; }
+  .status { position: absolute; z-index: 1000; top: 14px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 8px 14px; border-radius: 999px; font-size: 13px; }
+  .status.err { background: #b42318; }
+  .pop h3 { margin: 0 0 4px; font-size: 15px; }
+  .pop p { margin: 2px 0; font-size: 13px; color: #333; }
+  .pop .meta { color: var(--muted); }
+  .leaflet-container { font: inherit; }
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 60vh; height: auto; }
+    aside { border-right: 0; border-bottom: 1px solid var(--line); padding: 16px; }
+    #map { height: 60vh; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div>
+      <h1>NYC Charter Schools</h1>
+      <p class="sub">Every open charter school in the five boroughs, from the U.S. Department of Education's Common Core of Data (2024–25).</p>
+    </div>
+    <div class="total"><b id="count">–</b><span id="countLabel">schools shown</span></div>
+    <div>
+      <label for="q">Search</label>
+      <input id="q" type="search" placeholder="School name, network, or ZIP">
+    </div>
+    <div>
+      <label for="level">School level</label>
+      <select id="level"><option value="">All levels</option></select>
+    </div>
+    <div>
+      <label>Borough</label>
+      <div class="boros" id="boros"></div>
+    </div>
+    <div class="src">
+      <strong>Source:</strong> <a href="https://nces.ed.gov/ccd/" target="_blank" rel="noopener">NCES Common Core of Data</a>,
+      <a href="https://data-nces.opendata.arcgis.com/" target="_blank" rel="noopener">Public School Characteristics (current)</a>.
+      Filter: state = NY, charter = Yes, county in the five NYC boroughs, status not closed.
+      <span id="srcMode"></span>
+    </div>
+  </aside>
+  <div style="position:relative">
+    <div id="map"></div>
+    <div class="status" id="status">Loading schools…</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script>
+// ---- Config -----------------------------------------------------------------
+const SERVICE = "https://services1.arcgis.com/Ua5sjt3LWTPigjyD/ArcGIS/rest/services/School_Characteristics_Current/FeatureServer/1/query";
+const FIELDS = ["NCESSCH","SCH_NAME","LEA_NAME","LSTREET1","LCITY","LZIP","NMCNTY","GSLO","GSHI","SCHOOL_LEVEL","SY_STATUS_TEXT","TOTAL","PHONE","SURVYEAR","LATCOD","LONCOD"];
+// NYC's five boroughs are five NY counties.
+const BOROUGHS = { "NEW YORK": "Manhattan", "KINGS": "Brooklyn", "BRONX": "Bronx", "QUEENS": "Queens", "RICHMOND": "Staten Island" };
+const SNAPSHOT = "data/nyc_charter_schools.geojson"; // written by scripts/fetch_data.py
+
+// ---- Helpers ----------------------------------------------------------------
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const title = s => String(s ?? "").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+const boroughOf = county => {
+  const key = String(county || "").toUpperCase().replace(/\s+COUNTY$/, "").trim();
+  return BOROUGHS[key] || null;
+};
+const grade = g => (g === "PK" ? "Pre-K" : g === "KG" ? "K" : String(g || "").replace(/^0/, ""));
+function setStatus(msg, isErr) {
+  const el = $("status");
+  if (!msg) { el.style.display = "none"; return; }
+  el.textContent = msg; el.className = "status" + (isErr ? " err" : ""); el.style.display = "block";
+}
+
+// ---- Data loading: local snapshot first, live NCES query as fallback ---------
+async function loadSnapshot() {
+  const r = await fetch(SNAPSHOT, { cache: "no-store" });
+  if (!r.ok) throw new Error("no snapshot");
+  const gj = await r.json();
+  $("srcMode").textContent = " Loaded from the committed snapshot in /data.";
+  return gj.features.map(f => f.properties);
+}
+async function loadLive() {
+  const params = new URLSearchParams({
+    where: "LSTATE = 'NY' AND CHARTER_TEXT LIKE 'Y%'",
+    outFields: FIELDS.join(","),
+    returnGeometry: "false",
+    resultRecordCount: "2000",
+    f: "json"
+  });
+  const r = await fetch(`${SERVICE}?${params}`);
+  if (!r.ok) throw new Error(`NCES service returned ${r.status}`);
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message || "NCES query error");
+  $("srcMode").textContent = " Queried live from NCES on page load.";
+  return j.features.map(f => f.attributes);
+}
+function clean(rows) {
+  return rows
+    .map(r => ({ ...r, BOROUGH: r.BOROUGH || boroughOf(r.NMCNTY) }))
+    .filter(r => r.BOROUGH)                                    // five boroughs only
+    .filter(r => !/closed|inactive/i.test(r.SY_STATUS_TEXT || "")) // open schools only
+    .filter(r => Number.isFinite(+r.LATCOD) && Number.isFinite(+r.LONCOD));
+}
+
+// ---- Map --------------------------------------------------------------------
+const map = L.map("map", { zoomControl: true }).setView([40.72, -73.94], 11);
+L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+  maxZoom: 19
+}).addTo(map);
+const cluster = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 40 });
+map.addLayer(cluster);
+
+let all = [];
+const activeBoros = new Set(Object.values(BOROUGHS));
+
+function popup(r) {
+  const grades = r.GSLO ? `Grades ${grade(r.GSLO)}–${grade(r.GSHI)}` : "";
+  const enr = Number(r.TOTAL) > 0 ? `${Number(r.TOTAL).toLocaleString()} students` : "";
+  const network = r.LEA_NAME && title(r.LEA_NAME) !== title(r.SCH_NAME) ? `<p class="meta">${esc(title(r.LEA_NAME))}</p>` : "";
+  return `<div class="pop">
+    <h3>${esc(title(r.SCH_NAME))}</h3>${network}
+    <p>${esc(title(r.LSTREET1))}, ${esc(r.BOROUGH)} ${esc(r.LZIP)}</p>
+    <p class="meta">${[grades, enr, esc(r.SCHOOL_LEVEL)].filter(Boolean).join(" · ")}</p>
+    ${r.PHONE ? `<p class="meta">${esc(r.PHONE)}</p>` : ""}
+  </div>`;
+}
+
+function render() {
+  const q = $("q").value.trim().toLowerCase();
+  const lvl = $("level").value;
+  const shown = all.filter(r =>
+    activeBoros.has(r.BOROUGH) &&
+    (!lvl || r.SCHOOL_LEVEL === lvl) &&
+    (!q || [r.SCH_NAME, r.LEA_NAME, r.LZIP, r.LSTREET1].join(" ").toLowerCase().includes(q))
+  );
+  cluster.clearLayers();
+  cluster.addLayers(shown.map(r => {
+    const size = Math.max(5, Math.min(14, Math.sqrt(Number(r.TOTAL) || 100) / 2.5));
+    return L.circleMarker([+r.LATCOD, +r.LONCOD], {
+      radius: size, color: "#fff", weight: 1.5, fillColor: "#d9480f", fillOpacity: 0.85
+    }).bindPopup(popup(r));
+  }));
+  $("count").textContent = shown.length.toLocaleString();
+  $("countLabel").textContent = shown.length === all.length ? "charter schools" : `of ${all.length} shown`;
+}
+
+function buildControls() {
+  const counts = {};
+  all.forEach(r => counts[r.BOROUGH] = (counts[r.BOROUGH] || 0) + 1);
+  const max = Math.max(...Object.values(counts), 1);
+  $("boros").innerHTML = Object.values(BOROUGHS)
+    .sort((a, b) => (counts[b] || 0) - (counts[a] || 0))
+    .map(b => `<label class="boro" style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);margin:0">
+        <input type="checkbox" value="${b}" checked> <span>${b}</span><span class="n">${counts[b] || 0}</span>
+        <span class="bar"><i style="width:${((counts[b] || 0) / max) * 100}%"></i></span>
+      </label>`).join("");
+  $("boros").addEventListener("change", e => {
+    e.target.checked ? activeBoros.add(e.target.value) : activeBoros.delete(e.target.value);
+    render();
+  });
+  [...new Set(all.map(r => r.SCHOOL_LEVEL).filter(Boolean))].sort()
+    .forEach(l => $("level").insertAdjacentHTML("beforeend", `<option>${esc(l)}</option>`));
+  $("level").addEventListener("change", render);
+  $("q").addEventListener("input", render);
+}
+
+(async () => {
+  try {
+    let rows;
+    try { rows = await loadSnapshot(); } catch { rows = await loadLive(); }
+    all = clean(rows);
+    if (!all.length) throw new Error("No charter schools matched — the source schema may have changed.");
+    buildControls();
+    render();
+    setStatus(null);
+  } catch (err) {
+    console.error(err);
+    setStatus("Couldn't load school data: " + err.message, true);
+  }
+})();
+</script>
+</body>
+</html>
